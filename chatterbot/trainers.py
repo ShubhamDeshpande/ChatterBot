@@ -281,13 +281,6 @@ class TwitterTrainer(Trainer):
 
 def read_file(tsv_file, queue, preprocessors, stemmer):
 
-    # Wait for the queue to empty if it becomes too full
-    size = queue.qsize()
-    if size > 50000:
-        while size > 5000:
-            time.sleep(choice([5, 10, 15]))
-            size = queue.qsize()
-
     statements_from_file = []
 
     with open(tsv_file, 'r', encoding='utf-8') as tsv:
@@ -459,7 +452,7 @@ class UbuntuCorpusTrainer(Trainer):
             '**', '**', '*.tsv'
         )
 
-        BATCH_SIZE = 5000
+        BATCH_SIZE = 50000
 
         statements_to_create = []
         batch_number = 1
