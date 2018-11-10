@@ -278,38 +278,37 @@ class TwitterTrainer(Trainer):
                 )
 
 
-def read_file(tsv_file, queue, preprocessors, stemmer):
+def read_file(files, queue, preprocessors, stemmer):
 
     statements_from_file = []
 
-    with open(tsv_file, 'r', encoding='utf-8') as tsv:
-        reader = csv.reader(tsv, delimiter='\t')
+    for tsv_file in files:
+        with open(tsv_file, 'r', encoding='utf-8') as tsv:
+            reader = csv.reader(tsv, delimiter='\t')
 
-        previous_statement_text = None
-        previous_statement_search_text = ''
+            previous_statement_text = None
+            previous_statement_search_text = ''
 
-        for row in reader:
-            if len(row) > 0:
-                text = row[3]
+            for row in reader:
+                if len(row) > 0:
+                    statement = SlottedStatement(
+                        text=row[3],
+                        in_response_to=previous_statement_text,
+                        conversation='training',
+                        created_at=date_parser.parse(row[0]),
+                        persona=row[1]
+                    )
 
-                statement = SlottedStatement(
-                    text=text,
-                    in_response_to=previous_statement_text,
-                    conversation='training',
-                    created_at=date_parser.parse(row[0]),
-                    persona=row[1]
-                )
+                    for preprocessor in preprocessors:
+                        statement = preprocessor(statement)
 
-                for preprocessor in preprocessors:
-                    statement = preprocessor(statement)
+                    statement.search_text = stemmer.stem(statement.text)
+                    statement.search_in_response_to = previous_statement_search_text
 
-                statement.search_text = stemmer.stem(statement.text)
-                statement.search_in_response_to = previous_statement_search_text
+                    previous_statement_text = statement.text
+                    previous_statement_search_text = statement.search_text
 
-                previous_statement_text = statement.text
-                previous_statement_search_text = statement.search_text
-
-                statements_from_file.append(statement)
+                    statements_from_file.append(statement)
 
     queue.put(tuple(statements_from_file))
 
@@ -444,30 +443,28 @@ class UbuntuCorpusTrainer(Trainer):
             '**', '**', '*.tsv'
         )
 
-        BATCH_SIZE = 50000
-
-        statements_to_create = []
-        batch_number = 1
-        statement_count = 0
-
         manager = Manager()
         queue = manager.Queue()
         pool = Pool()
 
+        def chunks(l, n):
+            for i in range(0, len(l), n):
+                yield l[i:i + n]
+
+        file_list = glob.glob(extracted_corpus_path)
+
+        file_groups = list(chunks(file_list, 10000))
+
         arguments = [
-            (tsv_file, queue, self.chatbot.preprocessors, stemmer) for tsv_file in glob.iglob(extracted_corpus_path)
+            (file_group, queue, self.chatbot.preprocessors, stemmer) for file_group in file_groups
         ]
 
-        remaining_files = len(arguments)
-
-        print('Arguments to process:', remaining_files)
+        batch_number = 0
+        remaining_batches = len(arguments)
 
         map_result = pool.starmap_async(read_file, arguments)
 
         start_time = time.time()
-
-        files_per_batch = 0
-        last_batch_start_time = start_time
 
         print('After map call')
 
@@ -475,30 +472,25 @@ class UbuntuCorpusTrainer(Trainer):
 
             if not queue.empty():
                 queue_statemens = queue.get()
-                statements_to_create.extend(queue_statemens)
-                statement_count += len(queue_statemens)
 
-                remaining_files -= 1
-                files_per_batch += 1
+                batch_number += 1
+                remaining_batches -= 1
 
-                if statement_count < BATCH_SIZE:
-                    # Add more statements to the batch if it is not full
-                    continue
-
-                print('Training with batch {} containing {} statements.'.format(
-                    batch_number, statement_count
+                print('Training with batch {} with {} batches remaining..'.format(
+                    batch_number,
+                    remaining_batches
                 ))
-                print(remaining_files, 'files remaining.')
 
                 elapsed_time = time.time() - start_time
+                time_per_batch = elapsed_time / batch_number
+                remaining_time = time_per_batch * remaining_batches
+
                 print('{:.0f} hours {:.0f} minutes {:.0f} seconds elapsed.'.format(
                     elapsed_time // 3600 % 24,
                     elapsed_time // 60 % 60,
                     elapsed_time % 60
                 ))
 
-                time_per_batch = time.time() - last_batch_start_time
-                remaining_time = time_per_batch * (remaining_files / files_per_batch)
                 print('{:.0f} hours {:.0f} minutes {:.0f} seconds remaining.'.format(
                     remaining_time // 3600 % 24,
                     remaining_time // 60 % 60,
@@ -506,17 +498,12 @@ class UbuntuCorpusTrainer(Trainer):
                 ))
                 print('---')
 
-                self.chatbot.storage.create_many(statements_to_create)
-                last_batch_start_time = time.time()
-                statements_to_create.clear()
-                statement_count = 0
-                files_per_batch = 0
-                batch_number += 1
+                self.chatbot.storage.create_many(queue_statemens)
 
             if map_result.ready() and queue.empty():
                 break
 
-            time.sleep(5)
+            time.sleep(0.1)
 
         print('Pool about to close')
 
@@ -527,8 +514,5 @@ class UbuntuCorpusTrainer(Trainer):
         pool.join()
 
         print('Pool joined')
-
-        # Insert the remaining statements
-        self.chatbot.storage.create_many(statements_to_create)
 
         print('Training took', time.time() - start_time, 'seconds.')
