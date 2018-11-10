@@ -2,10 +2,9 @@ import os
 import sys
 import csv
 import time
-from random import choice
 from multiprocessing import Pool, Manager
 from dateutil import parser as date_parser
-from chatterbot.conversation import Statement
+from chatterbot.conversation import Statement, SlottedStatement
 from chatterbot.stemming import SimpleStemmer
 from chatterbot import utils
 
@@ -292,34 +291,27 @@ def read_file(tsv_file, queue, preprocessors, stemmer):
         for row in reader:
             if len(row) > 0:
                 text = row[3]
-                statement_search_text = stemmer.stem(text)
 
-                statement = Statement(text=statement_search_text)
+                statement = SlottedStatement(
+                    text=text,
+                    in_response_to=previous_statement_text,
+                    conversation='training',
+                    created_at=date_parser.parse(row[0]),
+                    persona=row[1]
+                )
 
                 for preprocessor in preprocessors:
                     statement = preprocessor(statement)
 
-                data = {
-                    'text': statement.text,
-                    'search_text': statement_search_text,
-                    'in_response_to': previous_statement_text,
-                    'search_in_response_to': previous_statement_search_text,
-                    'conversation': 'training',
-                    'created_at': date_parser.parse(row[0]),
-                    'persona': row[1]
-                }
-
-                if row[2].strip():
-                    data['tags'] = (
-                        'addressing_speaker:' + row[2],
-                    )
+                statement.search_text = stemmer.stem(statement.text)
+                statement.search_in_response_to = previous_statement_search_text
 
                 previous_statement_text = statement.text
-                previous_statement_search_text = statement_search_text
+                previous_statement_search_text = statement.search_text
 
-                statements_from_file.append(data)
+                statements_from_file.append(statement)
 
-    queue.put(statements_from_file)
+    queue.put(tuple(statements_from_file))
 
 
 class UbuntuCorpusTrainer(Trainer):

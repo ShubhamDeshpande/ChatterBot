@@ -90,3 +90,37 @@ class Statement(StatementMixin):
         Save the statement in the database.
         """
         self.storage.update(self)
+
+
+class SlottedStatement(object):
+
+    __slots__ = (
+        'id',
+        'text',
+        'search_text',
+        'conversation',
+        'persona',
+        'tags',
+        'in_response_to',
+        'search_in_response_to',
+        'created_at',
+        'confidence',
+    )
+
+    def __init__(
+        self, id=None, text='', search_text='', conversation='', persona='',
+        tags=[], in_response_to=None, search_in_response_to='', created_at=None
+    ):
+        self.id = id
+        self.text = text
+        self.search_text = search_text
+        self.conversation = conversation
+        self.persona = persona
+        self.tags = tags
+        self.in_response_to = in_response_to
+        self.search_in_response_to = search_in_response_to
+        self.created_at = created_at or datetime.now()
+        self.confidence = 0
+
+    def __repr__(self):
+        return '<Statement text:%s>' % (self.text)
