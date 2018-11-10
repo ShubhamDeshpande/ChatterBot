@@ -1,3 +1,4 @@
+import logging
 import sys
 import os
 
@@ -7,8 +8,6 @@ sys.path.insert(0, parent_directory)
 
 from chatterbot import ChatBot # NOQA
 from chatterbot.trainers import UbuntuCorpusTrainer # NOQA
-import logging # NOQA
-import time # NOQA
 
 
 '''
@@ -23,13 +22,8 @@ chatbot = ChatBot('Example Bot')
 
 trainer = UbuntuCorpusTrainer(chatbot)
 
-start_time = time.time()
-
 # Start by training our bot with the Ubuntu corpus data
 trainer.train()
-
-print('Done training.')
-print('Training took', time.time() - start_time, 'seconds.')
 
 # Now let's get a response to a greeting
 # response = chatbot.get_response('How are you doing today?')
